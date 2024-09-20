@@ -1,0 +1,8 @@
+# Ignore Bayesian Logistics results
+Bayesian_Logistics/results/
+
+# Ignore plot results
+plot_results/
+
+# Ignore trained samplers
+samplers_trained/

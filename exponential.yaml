@@ -1,6 +1,6 @@
 data:
   type: 'exponential'
-  Xdim_flow: 10
+  Xdim_flow: 50
   c: 10
   
 CNF:

@@ -12,7 +12,6 @@ import torchdiffeq as tdeq
 import torch.autograd as autograd
 import time
 import warnings
-from PIL import Image
 from argparse import Namespace
 from scipy.stats import gaussian_kde
 import time
@@ -266,15 +265,22 @@ def JKO_loss_func(xinput, model, ls_args_CNF, beta):
         raise ValueError("NaN or Inf values found in gradients")
     
     if Type == 'GMM_sphere':
-        if Xdim_flow != 2:
-            warnings.warn("The means for the GMM sphere are only designed for the 2D case. Please consider using GMM_cube for higher dimensions, or design your means for the GMM sphere in higher dimensions.", UserWarning)
+        # if Xdim_flow != 2:
+        #     warnings.warn("The means for the GMM sphere are only designed for the 2D case. Please consider using GMM_cube for higher dimensions, or design your means for the GMM sphere in higher dimensions.", UserWarning)
         angles = np.linspace(0, 2 * np.pi, num_means, endpoint=False)
-        means = [(c * np.cos(angle), c * np.sin(angle)) for angle in angles]
+        if Xdim_flow == 2:
+            means = [(c * np.cos(angle), c * np.sin(angle)) for angle in angles]
+        else:
+            means = [(c * np.cos(angle), c * np.sin(angle)) + (c,) * (Xdim_flow - 2) for angle in angles]
         variances = [[1] * Xdim_flow for i in range(len(means))]
         loss_V_dot = jacobian_manual_GMM(xpk, means=means, variances=variances)
         loss_V_dot = torch.sum(loss_V_dot * v_field, dim=1).mean()
     elif Type == 'GMM_cube':
-        means = np.array([[(c if bit == '1' else -c) for bit in format(i, f'0{Xdim_flow}b')] for i in range(num_means)])
+        if Xdim_flow <= 5:
+            means = np.array([[(c if bit == '1' else -c) for bit in format(i, f'0{Xdim_flow}b')] for i in range(num_means)])
+        else:
+            means = np.array([[(c if bit == '1' else -c) for bit in format(i, f'05b')] for i in range(num_means)])
+            means = np.hstack([means, np.full((num_means, Xdim_flow - 5), c)])
         variances = [[1] * Xdim_flow for i in range(len(means))]
         loss_V_dot = jacobian_manual_GMM(xpk, means=means, variances=variances)
         loss_V_dot = torch.sum(loss_V_dot * v_field, dim=1).mean()
@@ -282,7 +288,12 @@ def JKO_loss_func(xinput, model, ls_args_CNF, beta):
         diff = xpk.pow(2).sum(axis=1)
         loss_V_dot = torch.log(1+torch.exp(-punishment*(torch.sqrt(diff)-c))).mean() + 0.5*(diff).mean()
     elif Type == 'exponential':
-        loss_V_dot = -torch.sign(xpk) * c * beta + xpk
+        if Xdim_flow <= 10:
+            loss_V_dot = -torch.sign(xpk) * c * beta + xpk
+        else:
+            loss_V_dot = torch.zeros_like(xpk)
+            loss_V_dot[:, :10] = -torch.sign(xpk[:, :10]) * c * beta + xpk[:, :10]
+            loss_V_dot[:, 10:] = xpk[:, 10:]
         loss_V_dot = torch.sum(loss_V_dot * v_field, dim=1).mean()
     elif Type == 'funnel':
         loss_V_dot = jacobian_funnel_dd(xpk, sigma = 0.9)
@@ -451,19 +462,33 @@ def get_c_and_punishment(block_id):
     if Type != 'truncated':
         warnings.warn("This function is designed for 'truncated' type only.")
         return None, None
-    if block_id <= 4:
-        return min(4 , c1+0.1), 20
-    elif 4 < block_id <= 5:
-        return min(5, c1+0.1), 25
-    elif 5 < block_id <= 6:
-        return min(6, c1+0.1), 30
-    elif 6 < block_id <= 7:
-        return min(7, c1+0.1), 30
-    elif block_id >= 8:
-        return min(8, c1+0.1), 35
+    if Xdim_flow <= 5:
+        if block_id <= 4:
+            return min(4 , c1+0.1), 20
+        elif 4 < block_id <= 5:
+            return min(5, c1+0.1), 25
+        elif 5 < block_id <= 6:
+            return min(6, c1+0.1), 30
+        elif 6 < block_id <= 7:
+            return min(7, c1+0.1), 30
+        elif block_id >= 8:
+            return min(8, c1+0.1), 30
+    else:
+        if block_id <= 4:
+            return min(4 , c1+0.1), 20
+        elif 4 < block_id <= 6:
+            return min(5, c1+0.1), 25
+        elif 6 < block_id <= 8:
+            return min(6, c1+0.1), 30
+        elif 8 < block_id <= 10:
+            return min(7, c1+0.1), 30
+        elif 10 < block_id <= 12:
+            return min(7.5, c1+0.1), 35
+        elif block_id > 12:
+            return min(8, c1+0.1), 35
 
 parser = argparse.ArgumentParser(description='Load hyperparameters from a YAML file.')
-parser.add_argument('--AnnealingFlow_config', default = '/GMM_sphere_8_means.yaml', type=str, help='Path to the YAML file')
+parser.add_argument('--AnnealingFlow_config', default = '/GMM_sphere_c=10.yaml', type=str, help='Path to the YAML file')
 #parser.add_argument('--AnnealingFlow_config', default = '/storage/home/hcoda1/3/dwu381/scratch/Flow/AnnealingFlow_Final_Version/truncated.yaml', type=str, help='Path to the YAML file')
 
 args_parsed = parser.parse_args()
@@ -471,17 +496,20 @@ with open(args_parsed.AnnealingFlow_config, 'r') as file:
     args_yaml = yaml.safe_load(file)
 
 if __name__ == '__main__':
-    master_dir = '/storage/home/hcoda1/3/dwu381/scratch/Flow/AnnealingFlow_Final_Version/'
+    master_dir = '/storage/home/hcoda1/3/dwu381/scratch/AnnealingFlow_Final_Version'
     Type = args_yaml['data']['type']
     Xdim_flow = args_yaml['data']['Xdim_flow']
     if Type == 'GMM_sphere':
         num_means = args_yaml['data']['num_means']
     elif Type == 'GMM_cube':
-        num_means = 2 ** Xdim_flow
+        if Xdim_flow <= 5:
+            num_means = 2 ** Xdim_flow
+        else:
+            num_means = 2 ** 5
     block_idxes = args_yaml['training']['block_idxes']
     c = args_yaml['data']['c']
     c1 = c
-    master_dir = os.path.join(master_dir, f'samplers_trained/d={Xdim_flow}_{Type}_c={c1}_5')
+    master_dir = os.path.join(master_dir, f'samplers_trained/d={Xdim_flow}_{Type}_c={c1}_6')
     for block_id in block_idxes:
         if Type == 'truncated':
             c, punishment = get_c_and_punishment(block_id)
@@ -493,6 +521,8 @@ if __name__ == '__main__':
             else:
                 c = c1
             beta = get_beta(block_id, number = 8)
+        elif Type == 'GMM_sphere' and Xdim_flow > 2:
+            beta = get_beta(block_id, number = 15)
         elif Type == 'GMM_cube':
             beta = 1
         elif Type == 'exponential':

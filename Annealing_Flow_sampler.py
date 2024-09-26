@@ -124,6 +124,23 @@ def plot_samples(Xtraj, d, plot_directory=None, index=None):
         filename2 = f'd={d}_{Type}_Annealing_12.png'
         plt.savefig(os.path.join(plot_directory, filename2))
         plt.savefig(os.path.join(plot_directory, filename2.replace('png', 'pdf')))
+        fig3 = plt.figure(figsize=(8.5, 8.5))
+        ax3 = fig3.add_subplot(111)
+        def f(x):
+            normalization_constant = 1/(2 * np.sqrt(2 * np.pi) * np.exp(0.5*c**2))
+            return normalization_constant * np.exp(c*np.abs(x)) * np.exp(-0.5 * x**2)
+        hist = ax3.hist(Xtmp[:, 0], bins=300, density=True, alpha=0.7, label='Samples')
+        x_true = np.linspace(-15, 15, 800)
+        true_density = f(x_true)
+        ax3.plot(x_true, true_density, color='orange', linewidth=2, label='True Density')
+        ax3.legend(loc='upper right', fontsize=22)
+        ax3.set_ylim(0, 0.45)
+        ax3.set_title('Annealing Flow', fontsize=fsize)
+        ax3.tick_params(axis='both', which='major', labelsize=26)
+        filename3 = f'd={d}_{Type}_Annealing_1.png'
+        plt.savefig(os.path.join(plot_directory, filename3))
+        plt.savefig(os.path.join(plot_directory, filename3.replace('png', 'pdf')))
+        plt.close()
     plt.close()
 
 def get_beta(block_id):
@@ -141,13 +158,13 @@ with open(args_parsed.AnnealingFlow_config, 'r') as file:
 if __name__ == '__main__':
     c = args_yaml['data']['c']
     Xdim_flow = args_yaml['data']['Xdim_flow']
-    master_dir = '/storage/home/hcoda1/3/dwu381/scratch/Flow/AnnealingFlow_Final_Version'
+    master_dir = '/storage/home/hcoda1/3/dwu381/scratch/AnnealingFlow_Final_Version'
     d = args_yaml['data']['Xdim_flow']
     c = args_yaml['data']['c']
     Type = args_yaml['data']['type']
     samplers_trained_path = os.path.join(master_dir, f'samplers_trained/d={Xdim_flow}_{Type}_c={c}')
     if os.path.exists(samplers_trained_path):
-        samples_dir = os.path.join(master_dir, f'samplers_trained/d={Xdim_flow}_{Type}_c={c}_4')
+        samples_dir = os.path.join(master_dir, f'samplers_trained/d={Xdim_flow}_{Type}_c={c}')
     else:
         print("Warning: The 'samplers_trained' directory does not exist. Users must first run Annealing_Flow.py to train the samplers, and then use this code for fast sampling.")
         print("Program terminated.")
@@ -234,15 +251,16 @@ if __name__ == '__main__':
     os.makedirs(plot_dir, exist_ok=True)
     plot_samples(Z_traj[-1], d= Xdim_flow, plot_directory = plot_dir)
 
-    filename_data = os.path.join(samples_dir, f'Xtest_{nte}.pkl')
-    def count_modes(samples, threshold=7):
-        binary_samples = (samples > threshold).astype(int)
-        decimal_samples = np.sum(binary_samples * (2 ** np.arange(samples.shape[1])), axis=1)
-        unique_modes, mode_counts = np.unique(decimal_samples, return_counts=True)
-        total_samples = len(samples)
-        mode_proportions = mode_counts / total_samples
-        return len(unique_modes), mode_proportions
-    Z_samples = Z_traj[-1].cpu().numpy() if isinstance(Z_traj[-1], torch.Tensor) else Z_traj[-1]
-    num_modes, proportions = count_modes(Z_samples)
-    print(f'When calculating the number of modes, we recommend first sampling over 20,000 points, as there are 1,024 modes in total. Sampling fewer points may not cover all of them.')
-    print(f"Number of modes: {num_modes}")
+    # Count the number of modes explored for Exp-Weighted Gaussian
+    if Type == 'exponential':
+        def count_modes(samples, threshold=7):
+            binary_samples = (samples > threshold).astype(int)
+            decimal_samples = np.sum(binary_samples * (2 ** np.arange(samples.shape[1])), axis=1)
+            unique_modes, mode_counts = np.unique(decimal_samples, return_counts=True)
+            total_samples = len(samples)
+            mode_proportions = mode_counts / total_samples
+            return len(unique_modes), mode_proportions
+        Z_samples = Z_traj[-1].cpu().numpy() if isinstance(Z_traj[-1], torch.Tensor) else Z_traj[-1]
+        num_modes, proportions = count_modes(Z_samples)
+        print(f'When calculating the number of modes, we recommend first sampling over 20,000 points, as there are 1,024 modes in total. Sampling fewer points may not cover all of them.')
+        print(f"Number of modes: {num_modes}")

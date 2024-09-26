@@ -13,7 +13,6 @@ import torch.autograd as autograd
 import time
 import warnings
 from scipy.io import mmread
-from PIL import Image
 from argparse import Namespace
 from scipy.stats import gaussian_kde
 import time

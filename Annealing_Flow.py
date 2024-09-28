@@ -133,7 +133,9 @@ class CNF(nn.Module):
         self.odefunc.e_ls = None 
         self.odefunc.fix_e_ls = args.fix_e_ls
         self.odefunc.counter = 0
+        
         out = self.odefunc(0,x,velocity=True)
+        #out = self.odefunc(1,x,velocity=True)
 
         if args.use_NeuralODE is False:
             predz, dlogpx, dJacnorm = tdeq.odeint(
@@ -509,7 +511,7 @@ if __name__ == '__main__':
     block_idxes = args_yaml['training']['block_idxes']
     c = args_yaml['data']['c']
     c1 = c
-    master_dir = os.path.join(master_dir, f'samplers_trained/d={Xdim_flow}_{Type}_c={c1}_6')
+    master_dir = os.path.join(master_dir, f'samplers_trained/d={Xdim_flow}_{Type}_c={c1}_7')
     for block_id in block_idxes:
         if Type == 'truncated':
             c, punishment = get_c_and_punishment(block_id)
@@ -526,7 +528,10 @@ if __name__ == '__main__':
         elif Type == 'GMM_cube':
             beta = 1
         elif Type == 'exponential':
-            beta = get_beta(block_id, number = 20)
+            if Xdim_flow >= 4:
+                beta = get_beta(block_id, number = 20)
+            else:
+                beta = get_beta(block_id, number = 8)
         else:
             beta = get_beta(block_id, number = 8)
         folder_suffix = args_yaml['eval']['folder_suffix']

@@ -10,4 +10,4 @@
 #SBATCH --mail-user=dwu381@gatech.edu        # E-mail address for notifications
 cd $SLURM_SUBMIT_DIR
 
-python /storage/home/hcoda1/3/dwu381/scratch/AnnealingFlow_Final_Version/Annealing_Flow.py --AnnealingFlow_config /storage/home/hcoda1/3/dwu381/scratch/AnnealingFlow_Final_Version/truncated.yaml
+python /storage/home/hcoda1/3/dwu381/scratch/AnnealingFlow_Final_Version/Annealing_Flow.py --AnnealingFlow_config /storage/home/hcoda1/3/dwu381/scratch/AnnealingFlow_Final_Version/exponential.yaml

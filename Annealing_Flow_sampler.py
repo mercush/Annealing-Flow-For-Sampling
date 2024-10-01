@@ -82,7 +82,7 @@ def plot_samples(Xtraj, d, plot_directory=None, index=None):
         proportion2 = within_sphere2 / len(Xtmp)
         print('Proportion of points within c+2: ', proportion2)
 
-    ax.set_title(f'AI-Sampler', fontsize=fsize)
+    ax.set_title(f'Annealing Flow', fontsize=fsize)
     
     ax.tick_params(axis='both', which='major', labelsize=26)
 

@@ -19,7 +19,7 @@ from Annealing_Flow import gen_data, get_e_ls, divergence_approx, divergence_bf,
     CNF, default_CNF_structure, FlowNet_forward, l2_norm_sqr, move_over_blocks, push_samples_forward,\
         on_off, load_prev_CNFs, loop_data_loader, add_diffuse
 
-# python /Users/a59611/code/gen/AnnealingFlow/Annealing_Flow.py --JKO_config /Users/a59611/code/gen/AnnealingFlow/Annealing_Flow_exp.yaml
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 num_gpu = torch.cuda.device_count()
 mult_gpu = False if num_gpu < 2 else True
@@ -37,7 +37,7 @@ def plot_samples(Xtraj, d, plot_directory=None, index=None):
         x_true = np.linspace(-15, 15, 800)
         true_density = f(x_true)
         ax.plot(x_true, true_density, color='orange', linewidth=2, label='True Density')
-        ax.legend(loc='upper right', fontsize=22)  # Increased legend font size
+        ax.legend(loc='upper right', fontsize=22) 
         ax.set_ylim(0, 0.45)
 
     elif d == 2:

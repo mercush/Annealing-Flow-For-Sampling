@@ -6,3 +6,6 @@ plot_results/
 
 # Ignore trained samplers
 samplers_trained/
+
+# Ignore GMM_cube.yaml
+GMM_cube.yaml

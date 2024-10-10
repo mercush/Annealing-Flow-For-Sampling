@@ -1,6 +1,6 @@
 data:
   type: 'truncated'
-  Xdim_flow: 10
+  Xdim_flow: 5
   c: 6
   indicator: True
   

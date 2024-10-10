@@ -16,7 +16,6 @@ from argparse import Namespace
 from scipy.stats import gaussian_kde
 import time
 
-# python /Users/a59611/code/gen/AnnealingFlow/Annealing_Flow.py --JKO_config /Users/a59611/code/gen/AnnealingFlow/Annealing_Flow_exp.yaml
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 num_gpu = torch.cuda.device_count()
 mult_gpu = False if num_gpu < 2 else True
@@ -208,11 +207,12 @@ def gradient_E_target(input, k=20):
     diff = input.pow(2).sum(axis=1)
     return torch.log(1+torch.exp(-k*(torch.sqrt(diff)-c))).mean() + 0.5*(diff).mean()
 
+# We recommend manually calculating the Jacobian for GMM, since the automatic differentiation sometimes causes numerical issues.
 def jacobian_manual_GMM(input_tensor, means, variances):
     means = torch.tensor(means, device=device)
-    variances = torch.tensor(variances, device=device) # variances contain variance of each gaussian, e.g., [[1,1],[2,2]] for 2-GMM in 2D, assuming each dimension is independent
+    variances = torch.tensor(variances, device=device)
     def target_distribution_GMM_manual(x, means, pi, variances):
-        diff = x.unsqueeze(1) - means  # Shape: (batch_size, num_means, dim)
+        diff = x.unsqueeze(1) - means
         exp_term = torch.exp(-0.5 * torch.sum((diff ** 2) / variances, dim=-1))  # Shape: (batch_size, num_means)
         density = torch.sum(pi * exp_term / torch.sqrt(torch.prod(variances, dim=-1)), dim=-1) / (2 * torch.pi) ** (x.shape[1] / 2)  # Shape: (batch_size)
         return density
@@ -267,8 +267,6 @@ def JKO_loss_func(xinput, model, ls_args_CNF, beta):
         raise ValueError("NaN or Inf values found in gradients")
     
     if Type == 'GMM_sphere':
-        # if Xdim_flow != 2:
-        #     warnings.warn("The means for the GMM sphere are only designed for the 2D case. Please consider using GMM_cube for higher dimensions, or design your means for the GMM sphere in higher dimensions.", UserWarning)
         angles = np.linspace(0, 2 * np.pi, num_means, endpoint=False)
         if Xdim_flow == 2:
             means = [(c * np.cos(angle), c * np.sin(angle)) for angle in angles]
@@ -491,7 +489,6 @@ def get_c_and_punishment(block_id):
 
 parser = argparse.ArgumentParser(description='Load hyperparameters from a YAML file.')
 parser.add_argument('--AnnealingFlow_config', default = '/GMM_sphere_c=10.yaml', type=str, help='Path to the YAML file')
-#parser.add_argument('--AnnealingFlow_config', default = '/storage/home/hcoda1/3/dwu381/scratch/Flow/AnnealingFlow_Final_Version/truncated.yaml', type=str, help='Path to the YAML file')
 
 args_parsed = parser.parse_args()
 with open(args_parsed.AnnealingFlow_config, 'r') as file:

@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import scipy
 import pickle
 import numpy as np 
+import pandas as pd
 import torch
 import torch.nn as nn
 import torchdiffeq as tdeq
@@ -20,7 +21,7 @@ from sklearn.datasets import load_svmlight_file
 from sklearn.model_selection import train_test_split
 
 
-# python /Users/a59611/code/gen/AnnealingFlow/Annealing_Flow.py --JKO_config /Users/a59611/code/gen/AnnealingFlow/Annealing_Flow_exp.yaml
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 num_gpu = torch.cuda.device_count()
 mult_gpu = False if num_gpu < 2 else True
@@ -440,24 +441,51 @@ def Bayesian_Logistic_test(Ztraj, X_test, y_test):
     return avg_accuracy, std_accuracy, avg_log_posterior
 
 parser = argparse.ArgumentParser(description='Load hyperparameters from a YAML file.')
-parser.add_argument('--JKO_config', default = '/storage/home/hcoda1/3/dwu381/scratch/Flow/AnnealingFlow_Final_Version/Bayesian_Logistics/Annealing_Flow.yaml', type=str, help='Path to the YAML file')
+parser.add_argument('--JKO_config', default = 'Bayesian_Logistics/Annealing_Flow.yaml', type=str, help='Path to the YAML file')
 args_parsed = parser.parse_args()
 with open(args_parsed.JKO_config, 'r') as file:
     args_yaml = yaml.safe_load(file)
 
 if __name__ == '__main__':
     block_idxes = args_yaml['training']['block_idxes']
-    master_dir = f'/storage/home/hcoda1/3/dwu381/scratch/Flow/AnnealingFlow_Final_Version/Bayesian_Logistics'
+    master_dir = 'Bayesian_Logistics'
     gradient_based = False
     dataset = args_yaml['data']['dataset']
-    #file_path = f'/home/tianyu/newdata/Dongze/AnnealingFlow/Bayesian_Logistics/dataset/{dataset}.txt'
     file_path = os.path.join(master_dir, f'dataset/{dataset}')
-    X, y = load_svmlight_file(file_path)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    X_train_dense = X_train.toarray()
-    X_test_dense = X_test.toarray()
-    X_train_tensor = torch.tensor(X_train_dense, dtype=torch.float32).to(device)
-    X_test_tensor = torch.tensor(X_test_dense, dtype=torch.float32).to(device)
+
+    if dataset == 'codon_usage.csv':
+        df = pd.read_csv(file_path, header=0, low_memory=False)  # Suppress mixed type warnings
+        df = df[(df['DNAtype'] == 0) | (df['DNAtype'] == 1)]  # Keep rows where DNAtype == 0 or 1
+
+        # Step 2: Ensure columns 6 to the end are numeric
+        numeric_df = df.iloc[:, 5:].apply(pd.to_numeric, errors='coerce')  # Convert to numeric
+        numeric_df = numeric_df.dropna()  # Drop rows with any NaN values
+
+        # Step 3: Extract y and corresponding rows of X
+        filtered_df = df.loc[numeric_df.index]  # Align with clean rows
+        y = torch.tensor(filtered_df.iloc[:, 1].values, dtype=torch.float32)  # Second column as y
+        X = torch.tensor(numeric_df.values, dtype=torch.float32)  # Columns 6 to the end as X
+
+        print(X.shape)
+        print(y.shape)
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        X_train_tensor = torch.tensor(X_train, dtype=torch.float32).to(device)
+        X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
+    else:
+        X, y = load_svmlight_file(file_path)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        X_train_dense = X_train.toarray()
+        X_test_dense = X_test.toarray()
+        X_train_tensor = torch.tensor(X_train_dense, dtype=torch.float32).to(device)
+        X_test_tensor = torch.tensor(X_test_dense, dtype=torch.float32).to(device)
+
+
+    # Add a column of ones to both training and test tensors
+    X_train_tensor = torch.cat([X_train_tensor, torch.ones(X_train_tensor.shape[0], 1, device=device)], dim=1)
+    X_test_tensor = torch.cat([X_test_tensor, torch.ones(X_test_tensor.shape[0], 1, device=device)], dim=1)
+
+
     y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(device)
     y_test_tensor = torch.tensor(y_test, dtype=torch.float32).to(device)
     y_train_tensor = torch.where(y_train_tensor == -1, torch.tensor(0., device=device), y_train_tensor)

@@ -24,14 +24,17 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 num_gpu = torch.cuda.device_count()
 mult_gpu = False if num_gpu < 2 else True
 
+
 def plot_samples(Xtraj, d, plot_directory=None, index=None):
     fig = plt.figure(figsize=(8.5, 8.5))
     fsize = 35
     Xtmp = Xtraj.cpu().numpy()
+    
     if d == 1:
         def f(x):
-            normalization_constant = 1/(2 * np.sqrt(2 * np.pi) * np.exp(0.5*c**2))
-            return normalization_constant * np.exp(c*np.abs(x)) * np.exp(-0.5 * x**2)
+            density = (1/3) * scipy.stats.norm.pdf(x, loc=5, scale=1) + \
+                     (2/3) * scipy.stats.norm.pdf(x, loc=-5, scale=1)
+            return density
         ax = fig.add_subplot(111)
         hist = ax.hist(Xtraj.cpu().numpy(), bins=300, density=True, alpha=0.7, label='Samples')
         x_true = np.linspace(-15, 15, 800)
@@ -83,24 +86,26 @@ def plot_samples(Xtraj, d, plot_directory=None, index=None):
         print('Proportion of points within c+2: ', proportion2)
 
     ax.set_title(f'Annealing Flow', fontsize=fsize)
-    
     ax.tick_params(axis='both', which='major', labelsize=26)
 
     fig.tight_layout()
     if d >= 3:
         if Type == 'funnel':
-            filename = f'd={d}_{Type}_sigma_{sigma}_Annealing.png'
+            filename = f'd={d}_{Type}_Annealing.png'
         else:
             filename = f'd={d}_{Type}_Annealing.png'
     else:
         if Type == 'funnel':
-            filename = f'd={d}_{Type}_sigma_{sigma}_Annealing.png'
+            filename = f'd={d}_{Type}_Annealing.png'
 
         else:
             filename = f'd={d}_{Type}_c={c}_Annealing_01.png'
 
     plt.savefig(os.path.join(plot_directory, filename))
     plt.savefig(os.path.join(plot_directory, filename.replace('png', 'pdf')))
+
+
+
     plt.close()
     if Type == 'funnel':
         fig2 = plt.figure(figsize=(8.5, 8.5))
@@ -108,11 +113,14 @@ def plot_samples(Xtraj, d, plot_directory=None, index=None):
         ax2.scatter(Xtmp[:, 0], Xtmp[:, 1], s=0.5)
         ax2.set_xlim([-5, 5])
         ax2.set_ylim([-10, 10])
+
         ax2.set_title('Annealing Flow', fontsize=fsize)
         ax2.tick_params(axis='both', which='major', labelsize=26)
+
         filename2 = f'd={d}_{Type}_sigma_{sigma}_Annealing_12.png'
         plt.savefig(os.path.join(plot_directory, filename2))
         plt.savefig(os.path.join(plot_directory, filename2.replace('png', 'pdf')))
+
     elif Type == 'exponential' and d != 1:
         fig2 = plt.figure(figsize=(8.5, 8.5))
         ax2 = fig2.add_subplot(111)
@@ -149,7 +157,7 @@ def get_beta(block_id):
     return beta
 
 parser = argparse.ArgumentParser(description='Load hyperparameters from a YAML file.')
-parser.add_argument('--AnnealingFlow_config', default = '/Samplers.yaml', type=str, help='Path to the YAML file')
+parser.add_argument('--AnnealingFlow_config', default = 'Samplers.yaml', type=str, help='Path to the YAML file')
 
 args_parsed = parser.parse_args()
 with open(args_parsed.AnnealingFlow_config, 'r') as file:
@@ -158,17 +166,18 @@ with open(args_parsed.AnnealingFlow_config, 'r') as file:
 if __name__ == '__main__':
     c = args_yaml['data']['c']
     Xdim_flow = args_yaml['data']['Xdim_flow']
-    master_dir = '/storage/home/hcoda1/3/dwu381/scratch/AnnealingFlow_Final_Version'
     d = args_yaml['data']['Xdim_flow']
     c = args_yaml['data']['c']
+    num_means = args_yaml['data']['num_means']
     Type = args_yaml['data']['type']
-    samplers_trained_path = os.path.join(master_dir, f'samplers_trained/d={Xdim_flow}_{Type}_c={c}')
-    if os.path.exists(samplers_trained_path):
-        samples_dir = os.path.join(master_dir, f'samplers_trained/d={Xdim_flow}_{Type}_c={c}')
-    else:
-        print("Warning: The 'samplers_trained' directory does not exist. Users must first run Annealing_Flow.py to train the samplers, and then use this code for fast sampling.")
-        print("Program terminated.")
-        exit()
+    samplers_trained_path = f'samplers_trained/d={Xdim_flow}_{Type}_c={c}'
+
+    # if os.path.exists(samplers_trained_path):
+    #     samples_dir = os.path.join(master_dir, f'samplers_trained/d={Xdim_flow}_{Type}_c={c}')
+    # else:
+    #     print("Warning: The 'samplers_trained' directory does not exist. Users must first run Annealing_Flow.py to train the samplers, and then use this code for fast sampling.")
+    #     print("Program terminated.")
+    #     exit()
     circle = False
     if Type == 'truncated':
         circle = True
@@ -181,7 +190,6 @@ if __name__ == '__main__':
             block_numbers.append(int(match.group(1)))
     if block_numbers:
         max_block_number = max(block_numbers)
-        # Create a list ranging from 1 to the highest block number
         block_idxes = list(range(1, max_block_number + 1))
         print(f"Number of blocks: {max_block_number}")
         print(f"Block list: {block_idxes}")
@@ -244,23 +252,69 @@ if __name__ == '__main__':
     on_off(self, on = True)
     move_configs = Namespace(block_id = block_id, self_ls_prev = self_ls_prev)
     start_time = time.time()
-    Z_traj = move_over_blocks(self, move_configs, nte = nte)
+    Z_traj, tot_dlogpx = move_over_blocks(self, move_configs, nte = nte)
+
     end_time = time.time()
     print(f"Time taken for sampling {nte} points: {end_time - start_time} seconds")
-    plot_dir = os.path.join(master_dir, 'plot_results')
+
+    plot_dir = 'plot_results'
+
     os.makedirs(plot_dir, exist_ok=True)
     plot_samples(Z_traj[-1], d= Xdim_flow, plot_directory = plot_dir)
 
     # Count the number of modes explored for Exp-Weighted Gaussian
     if Type == 'exponential':
-        def count_modes(samples, threshold=7):
-            binary_samples = (samples > threshold).astype(int)
+        def count_modes(samples, thresholds=None):
+            if thresholds is None:
+                thresholds = [7] + [7] * (samples.shape[1] - 1)
+            thresholds = np.array(thresholds)
+            binary_samples = (samples > thresholds).astype(int)
             decimal_samples = np.sum(binary_samples * (2 ** np.arange(samples.shape[1])), axis=1)
             unique_modes, mode_counts = np.unique(decimal_samples, return_counts=True)
             total_samples = len(samples)
             mode_proportions = mode_counts / total_samples
             return len(unique_modes), mode_proportions
+        
+        def calculate_variances(samples):
+            print('Users must adjust calculate_variances function to match the variances set in their ExpGauss experiment.')
+            # Convert samples to tensor if it's not already
+            if not isinstance(samples, torch.Tensor):
+                samples = torch.tensor(samples)
+            samples_modified = samples.clone()
+            samples_modified[:, :10] = torch.abs(samples_modified[:, :10])
+            print('shape of samples: ', samples_modified.shape)
+            variances = torch.var(samples_modified, dim=0)
+            print("Variances for first 15 dimensions:")
+            for i in range(min(15, len(variances))):
+                print(f"Dimension {i+1}: {variances[i]:.4f}")
+            # Create true variances tensor
+            true_variances = torch.ones_like(variances)
+            true_variances[1] = 0.5  # Second dimension has variance 0.5
+            mse = torch.mean((variances - true_variances) ** 2)
+            print(f"\nMean Squared Error between calculated and true variances: {mse:.4f}")
+            return variances
+
         Z_samples = Z_traj[-1].cpu().numpy() if isinstance(Z_traj[-1], torch.Tensor) else Z_traj[-1]
+        calculate_variances(Z_samples)
         num_modes, proportions = count_modes(Z_samples)
         print(f'When calculating the number of modes, we recommend first sampling over 20,000 points, as there are 1,024 modes in total. Sampling fewer points may not cover all of them.')
         print(f"Number of modes: {num_modes}")
+    
+    elif Type == 'GMM_sphere':
+        def calculate_mode_weights(samples, mode_means):
+            # Convert both tensors to the same dtype (float32)
+            samples = samples.to(torch.float32)
+            mode_means = mode_means.to(torch.float32)
+            distances = torch.cdist(samples, mode_means)  # Shape: (N, K)
+            assigned_modes = torch.argmin(distances, dim=1)  # Shape: (N,)
+            num_samples_per_mode = torch.bincount(assigned_modes, minlength=mode_means.size(0))
+            weights = num_samples_per_mode.float() / samples.size(0)
+            return weights
+        angles = np.linspace(0, 2 * np.pi, num_means, endpoint=False)
+        if Xdim_flow == 2:
+            means = [(c * np.cos(angle), c * np.sin(angle)) for angle in angles]
+        else:
+            means = [(c * np.cos(angle), c * np.sin(angle)) + (c/2,) * (Xdim_flow - 2) for angle in angles]
+        Z_samples = Z_traj[-1].cpu().numpy() if isinstance(Z_traj[-1], torch.Tensor) else Z_traj[-1]
+        mode_weights = calculate_mode_weights(torch.tensor(Z_samples, device=device), torch.tensor(means, device=device))
+        print(f"Mode weights: {mode_weights}")

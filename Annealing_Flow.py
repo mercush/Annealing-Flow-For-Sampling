@@ -20,12 +20,14 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 num_gpu = torch.cuda.device_count()
 mult_gpu = False if num_gpu < 2 else True
 
-def gen_data(datasize, dim):
+
+def gen_data(datasize, dim, Type=None):
     mean = 0
-    variance = 1.0
     standard_normal_samples = torch.randn(datasize, dim)
-    data = standard_normal_samples * variance + mean
+    variance = torch.ones(dim)
+    data = standard_normal_samples * torch.sqrt(variance) + mean
     return data
+
 
 def get_e_ls(out, num_e):
     e_ls = []
@@ -148,6 +150,8 @@ class CNF(nn.Module):
         if mult_gpu:
             return predz[-1], dlogpx[-1], dJacnorm[-1], out
         else:
+            # dlogpx: [2,10000]
+            # dlogpx returned by CNF contains two values, one at middle, another at end time
             return predz, dlogpx, dJacnorm, out
 
 def default_CNF_structure(config):
@@ -157,16 +161,19 @@ def default_CNF_structure(config):
     return CNF_
 
 def FlowNet_forward(xinput, CNF, ls_args_CNF, block_now, test = True, return_full = False):
+    # This function moves data from [t_{k-1}, t_{k}], integrating the 3 sub-intervals in [t_{k-1}, t_{k}]
     if block_now == 0:
         return xinput, 0
     else:
         ls_args_CNF = ls_args_CNF[:block_now]
         with torch.no_grad():
             predz_ls, dlogpx_ls = [], []
+            log_px = torch.zeros(xinput.shape[0]).to(device)
             for i, args_CNF in enumerate(ls_args_CNF):
                 predz, dlogpx, _, _ = CNF(xinput, args_CNF, 
                                     test = test,
                                     mult_gpu = mult_gpu)
+                log_px += dlogpx[-1]
                 if mult_gpu:
                     if i == 0:
                         predz_ls.append(xinput)
@@ -188,10 +195,12 @@ def FlowNet_forward(xinput, CNF, ls_args_CNF, block_now, test = True, return_ful
         else:
             predz_ls = torch.stack(predz_ls, dim=0)
             dlogpx_ls = torch.stack(dlogpx_ls, dim=0)
+        # shape of dlogpx_ls: 4*10000
+
         if return_full:
-            return predz_ls, dlogpx_ls
+            return predz_ls, log_px
         else:
-            return predz_ls[-1], dlogpx_ls[-1]
+            return predz_ls[-1], log_px
 
 def l2_norm_sqr(input, return_full = False):
     if len(input.size()) > 2:
@@ -207,16 +216,21 @@ def gradient_E_target(input, k=20):
     diff = input.pow(2).sum(axis=1)
     return torch.log(1+torch.exp(-k*(torch.sqrt(diff)-c))).mean() + 0.5*(diff).mean()
 
+################################################################################
 # We recommend manually calculating the Jacobian for GMM, since the automatic differentiation sometimes causes numerical issues.
+################################################################################
+
 def jacobian_manual_GMM(input_tensor, means, variances):
     means = torch.tensor(means, device=device)
     variances = torch.tensor(variances, device=device)
-    def target_distribution_GMM_manual(x, means, pi, variances):
+    weights = torch.tensor(weights, device=device)
+    def target_distribution_GMM_manual(x, means, w, variances):
         diff = x.unsqueeze(1) - means
         exp_term = torch.exp(-0.5 * torch.sum((diff ** 2) / variances, dim=-1))  # Shape: (batch_size, num_means)
-        density = torch.sum(pi * exp_term / torch.sqrt(torch.prod(variances, dim=-1)), dim=-1) / (2 * torch.pi) ** (x.shape[1] / 2)  # Shape: (batch_size)
+        density = torch.sum(w * exp_term / torch.sqrt(torch.prod(variances, dim=-1)), dim=-1) / (2 * torch.pi) ** (x.shape[1] / 2)  # Shape: (batch_size)
         return density
     pi = torch.tensor([1/num_means] * num_means, dtype=torch.float32).to(device)
+    #pi = weights
     g = target_distribution_GMM_manual(input_tensor, means, pi, variances)
     diff = input_tensor.unsqueeze(1) - means
     exp_term = torch.exp(-0.5 * torch.sum((diff ** 2) / variances, dim=-1))
@@ -225,6 +239,29 @@ def jacobian_manual_GMM(input_tensor, means, variances):
     dg_dx = dgd_x / (g.unsqueeze(-1) + epsl)  # Shape: (batch_size, dim)
     df_dx = beta * dg_dx + (1 - beta) * input_tensor
     return df_dx
+
+# def energy_GMM(input_tensor):
+#     if Type == 'GMM_sphere':
+#         # Multiple components equally spaced on a circle/sphere
+#         angles = np.linspace(0, 2 * np.pi, num_means, endpoint=False)
+#         if Xdim_flow == 2:
+#             means = torch.tensor([(c * np.cos(angle), c * np.sin(angle)) 
+#                                 for angle in angles], device=device)
+#         else:
+#             means = torch.tensor([(c * np.cos(angle), c * np.sin(angle)) + (c,) * (Xdim_flow - 2) 
+#                                 for angle in angles], device=device)
+        
+#         weight = 1.0 / num_means
+#         var = 1.0
+        
+#         log_ps = []
+#         for mean in means:
+#             diff = input_tensor - mean
+#             log_p = -0.5 * diff.pow(2).sum(axis=1) / var - 0.5 * Xdim_flow * torch.log(2 * torch.pi * var)
+#             log_ps.append(torch.log(weight) + log_p)
+            
+#         log_mix = torch.logsumexp(torch.stack(log_ps), dim=0)
+#         return -log_mix
 
 def jacobian_funnel_dd(input_tensor, sigma = 0.5):
     d = input_tensor.shape[1]
@@ -251,7 +288,7 @@ def JKO_loss_func(xinput, model, ls_args_CNF, beta):
             loss_Jac_tot += args_training.lam_jac * lossJacnorm.mean()
         else:
             xpk = predz[-1]
-            loss_div_tot += dlogpx[-1].mean()
+            loss_div_tot += dlogpx[-1].mean() # dlogpx returned by CNF contains two values, one at middle, another at end time
             loss_Jac_tot += args_training.lam_jac * lossJacnorm[-1].mean()
         xinput = xpk
     if args_yaml['CNF']['dynamic']:
@@ -267,14 +304,22 @@ def JKO_loss_func(xinput, model, ls_args_CNF, beta):
         raise ValueError("NaN or Inf values found in gradients")
     
     if Type == 'GMM_sphere':
+        #################################################################################
+        # For GMM experiments:
+        ## We use the Type II loss, as discussed in "The objective" of Appendix C.2.
+        ## The energy function in the loss is replaced with: \nabla E(x(t_k)) \cdot v_k(x(t_k))
+        ## The Jacobian is computed manually, as the automatic differentiation sometimes causes numerical issues.
+        #################################################################################
         angles = np.linspace(0, 2 * np.pi, num_means, endpoint=False)
         if Xdim_flow == 2:
             means = [(c * np.cos(angle), c * np.sin(angle)) for angle in angles]
         else:
-            means = [(c * np.cos(angle), c * np.sin(angle)) + (c,) * (Xdim_flow - 2) for angle in angles]
+            means = [(c * np.cos(angle), c * np.sin(angle)) + (c/2,) * (Xdim_flow - 2) for angle in angles]
         variances = [[1] * Xdim_flow for i in range(len(means))]
+
         loss_V_dot = jacobian_manual_GMM(xpk, means=means, variances=variances)
         loss_V_dot = torch.sum(loss_V_dot * v_field, dim=1).mean()
+
     elif Type == 'GMM_cube':
         if Xdim_flow <= 5:
             means = np.array([[(c if bit == '1' else -c) for bit in format(i, f'0{Xdim_flow}b')] for i in range(num_means)])
@@ -284,20 +329,34 @@ def JKO_loss_func(xinput, model, ls_args_CNF, beta):
         variances = [[1] * Xdim_flow for i in range(len(means))]
         loss_V_dot = jacobian_manual_GMM(xpk, means=means, variances=variances)
         loss_V_dot = torch.sum(loss_V_dot * v_field, dim=1).mean()
+
     elif Type == 'truncated':
         diff = xpk.pow(2).sum(axis=1)
         loss_V_dot = torch.log(1+torch.exp(-punishment*(torch.sqrt(diff)-c))).mean() + 0.5*(diff).mean()
-    elif Type == 'exponential':
+
+    elif Type == 'exponential' or Type == 'exponential_unequal':
+        #################################################################################
+        # For ExpGauss experiments:
+        ## We use the Type II loss, as discussed in "The objective" of Appendix C.2.
+        ## The energy function in the loss is replaced with: \nabla E(x(t_k)) \cdot v_k(x(t_k))
+        #################################################################################
         if Xdim_flow <= 10:
             loss_V_dot = -torch.sign(xpk) * c * beta + xpk
         else:
             loss_V_dot = torch.zeros_like(xpk)
             loss_V_dot[:, :10] = -torch.sign(xpk[:, :10]) * c * beta + xpk[:, :10]
             loss_V_dot[:, 10:] = xpk[:, 10:]
+
+            if Type == 'exponential_unequal':
+                sigma2 = 0.5
+                loss_V_dot[:, :5] = -torch.sign(xpk[:, :5]) * c * beta/sigma2 + xpk[:, :5]/sigma2
+                loss_V_dot[:, 10:15] = xpk[:, 10:15]/sigma2
+                loss_V_dot[:, 15:] = xpk[:, 15:]
         loss_V_dot = torch.sum(loss_V_dot * v_field, dim=1).mean()
     elif Type == 'funnel':
         loss_V_dot = jacobian_funnel_dd(xpk, sigma = 0.9)
         loss_V_dot = torch.sum(loss_V_dot * v_field, dim=1).mean()
+
     return loss_V_dot, loss_div_tot, loss_W2_tot, loss_Jac_tot, raw_movement
 
 # Moves data through all given block (forward/backward), and return the intermediate results
@@ -306,13 +365,18 @@ def move_over_blocks(self, move_configs, nte = 1000):
         Xtest = self.X_test.to(device)
         if move_configs.block_id > 1:
             Zhat_ls_prev, Zout = [Xtest], Xtest
+            dlogpx_ls_prev = [-0.5 * torch.sum(Xtest**2, dim=1)]
+
             for self_mod in move_configs.self_ls_prev:
-                Zout, _ = FlowNet_forward(Zout, self_mod.CNF, self_mod.ls_args_CNF, #ls_args_CNF consists of all sub-int
+                # self_mod is [t_{k-1}, t_{k}]
+                # self_mod.ls_args_CNF consists of the 3 sub-intervals in [t_{k-1}, t_{k}]
+                Zout, dlogpx = FlowNet_forward(Zout, self_mod.CNF, self_mod.ls_args_CNF, #ls_args_CNF consists of all sub-int
                                           self_mod.block_now, return_full = False)
-                Zhat_ls_prev.append(Zout)
+                Zhat_ls_prev.append(Zout) #only the last value
+                dlogpx_ls_prev.append(dlogpx[-1])
             Xtest = Zout
         # Begin current block:
-        Zhat_ls, _ = FlowNet_forward(Xtest, self.CNF, self.ls_args_CNF,
+        Zhat_ls, dlogpx_ls = FlowNet_forward(Xtest, self.CNF, self.ls_args_CNF,
                                      self.block_now, return_full = True)
         if mult_gpu:
             ids = range(len(Zhat_ls))
@@ -321,7 +385,11 @@ def move_over_blocks(self, move_configs, nte = 1000):
         Zhat_ls = [Zhat_ls[i] for i in ids]
         if move_configs.block_id > 1:
             Zhat_ls = Zhat_ls_prev + Zhat_ls[1:]
-    return Zhat_ls 
+            dlogpx_ls_prev.append(dlogpx_ls[-1]) #!!!!!!!!!!!!!!!!!!!!!!!!!
+            tot_dlogpx = sum(dlogpx_ls_prev) # shape is of nte size
+        else:
+            tot_dlogpx = None
+    return Zhat_ls, tot_dlogpx
 
 def push_samples_forward(data_loader, self):
     X = []
@@ -436,6 +504,12 @@ def plot_traj(Xtraj, d):
     ts = np.linspace(0, 1, ncol)
     for i, ax in enumerate(axs.flatten()):
         if d == 1:
+            # Plot true density for 2-mode GMM
+            x_plot = np.linspace(-15, 15, 1000)
+            density = (1/3) * scipy.stats.norm.pdf(x_plot, loc=c, scale=1) + \
+                     (2/3) * scipy.stats.norm.pdf(x_plot, loc=-c, scale=1)
+            ax.plot(x_plot, density, 'r-', lw=2, label='True density')
+            ax.legend(fontsize=12)
             ax.hist(Xtraj[i].clone().detach().cpu().numpy(), bins=50, density=True)
         else:
             Xtmp = Xtraj[i].clone().detach().cpu().numpy()
@@ -450,52 +524,59 @@ def plot_traj(Xtraj, d):
     plt.savefig(os.path.join(directory, f'trajectory_{index}.png'))
     plt.close()
 
-def get_beta(block_id, number=8):
+def get_beta(block_id, number=10):
     if block_id <= number:
         beta = block_id/number
     else:
         beta = 1
     return beta
+    # if block_id <= 2 * number:
+    #     beta = (block_id // 2) / number
+    # else:
+    #     beta = 1
+    # return beta
 
 def get_c_and_punishment(block_id):
     # Please increase the values accordingly if you set c > 8.
+    # Since we relax 1_{||x||>c} with log(1+exp(-punishment*(||x||-c))), 
+    # we need to slightly adjust the boundary radius c.
+    c_ = c1+0.1
     if Type != 'truncated':
         warnings.warn("This function is designed for 'truncated' type only.")
         return None, None
     if Xdim_flow <= 5:
         if block_id <= 4:
-            return min(4 , c1+0.1), 20
+            return min(4 , c_), 20
         elif 4 < block_id <= 5:
-            return min(5, c1+0.1), 25
+            return min(5, c_), 25
         elif 5 < block_id <= 6:
-            return min(6, c1+0.1), 30
+            return min(6, c_), 30
         elif 6 < block_id <= 7:
-            return min(7, c1+0.1), 30
+            return min(7, c_), 30
         elif block_id >= 8:
-            return min(8, c1+0.1), 30
+            return min(8, c_), 30
     else:
         if block_id <= 4:
-            return min(4 , c1+0.1), 20
+            return min(4 , c_), 20
         elif 4 < block_id <= 6:
-            return min(5, c1+0.1), 25
+            return min(5, c_), 25
         elif 6 < block_id <= 8:
-            return min(6, c1+0.1), 30
+            return min(6, c_), 30
         elif 8 < block_id <= 10:
-            return min(7, c1+0.1), 30
+            return min(7, c_), 30
         elif 10 < block_id <= 12:
-            return min(7.5, c1+0.1), 35
+            return min(7.5, c_), 35
         elif block_id > 12:
-            return min(8, c1+0.1), 35
+            return min(8, c_), 35
 
 parser = argparse.ArgumentParser(description='Load hyperparameters from a YAML file.')
-parser.add_argument('--AnnealingFlow_config', default = '/GMM_sphere_c=10.yaml', type=str, help='Path to the YAML file')
+parser.add_argument('--AnnealingFlow_config', default = 'ExpGauss_unequal.yaml', type=str, help='Path to the YAML file')
 
 args_parsed = parser.parse_args()
 with open(args_parsed.AnnealingFlow_config, 'r') as file:
     args_yaml = yaml.safe_load(file)
 
 if __name__ == '__main__':
-    master_dir = '/storage/home/hcoda1/3/dwu381/scratch/AnnealingFlow_Final_Version'
     Type = args_yaml['data']['type']
     Xdim_flow = args_yaml['data']['Xdim_flow']
     if Type == 'GMM_sphere':
@@ -508,29 +589,31 @@ if __name__ == '__main__':
     block_idxes = args_yaml['training']['block_idxes']
     c = args_yaml['data']['c']
     c1 = c
-    master_dir = os.path.join(master_dir, f'samplers_trained/d={Xdim_flow}_{Type}_c={c1}_7')
+    master_dir = 'samplers_trained/d={Xdim_flow}_{Type}_c={c1}'
+
     for block_id in block_idxes:
         if Type == 'truncated':
             c, punishment = get_c_and_punishment(block_id)
         if Type == 'funnel':
             beta = 1
-        elif Type == 'GMM_sphere' and c1 >= 12:
+        elif Type == 'GMM_sphere' and c1 >= 13:
             if block_id <= 8:
                 c = 8
             else:
                 c = c1
-            beta = get_beta(block_id, number = 8)
+            beta = get_beta(block_id, number = 1)
         elif Type == 'GMM_sphere' and Xdim_flow > 2:
-            beta = get_beta(block_id, number = 15)
+            beta = get_beta(block_id, number = 8)
+
         elif Type == 'GMM_cube':
             beta = 1
-        elif Type == 'exponential':
+        elif Type == 'exponential' or Type == 'exponential_unequal':
             if Xdim_flow >= 4:
-                beta = get_beta(block_id, number = 20)
+                beta = get_beta(block_id, number = 15)
             else:
-                beta = get_beta(block_id, number = 8)
+                beta = get_beta(block_id, number = 15)
         else:
-            beta = get_beta(block_id, number = 8)
+            beta = get_beta(block_id, number = 2)
         folder_suffix = args_yaml['eval']['folder_suffix']
         os.makedirs(master_dir, exist_ok=True)
         prefix = 'block'
@@ -680,7 +763,7 @@ if __name__ == '__main__':
                 print(f'######### Evaluate at iter {i+1}')    
                 on_off(self, on = True)
                 move_configs = Namespace(block_id = block_id, self_ls_prev = self_ls_prev)
-                Z_traj = move_over_blocks(self, move_configs, nte = nte) # Towards the target distribution
+                Z_traj, tot_dlogpx = move_over_blocks(self, move_configs, nte = nte) # Towards the target distribution
                 index = i//viz_freq
                 plot_traj(Z_traj, args_yaml['data']['Xdim_flow'])
 
@@ -692,7 +775,7 @@ if __name__ == '__main__':
                 on_off(self, on = True)
                 nmax = 10000
                 move_configs = Namespace(block_id = block_id, self_ls_prev = self_ls_prev)
-                X_traj = move_over_blocks(self, move_configs, nte=nmax)
+                X_traj, tot_dlogpx = move_over_blocks(self, move_configs, nte=nmax)
                 Xhat = X_traj[-1].cpu().numpy()
                 #mmd_dict = get_MMD(X, Xhat, nmax = nmax)
                 #print(mmd_dict)

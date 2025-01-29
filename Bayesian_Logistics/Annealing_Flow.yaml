@@ -1,5 +1,5 @@
 data:
-  dataset: 'heart.txt'
+  dataset: 'codon_usage.csv' #'splice.txt'
 
 CNF:
   dynamic: True

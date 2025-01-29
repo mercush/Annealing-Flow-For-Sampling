@@ -1,5 +1,11 @@
 # Ignore Bayesian Logistics results
 Bayesian_Logistics/results/
+BNN/
+more_pics/
+others/
+
+AnnealingFlow_Posterior/
+Flow/
 
 # Ignore plot results
 plot_results/
@@ -7,5 +13,12 @@ plot_results/
 # Ignore trained samplers
 samplers_trained/
 
+plot_unequal.py
+run_flow.sbatch
+
+toy_plot.py
+gmm_density.png
+
 # Ignore GMM_cube.yaml
 GMM_cube.yaml
+GMM_unequal.yaml

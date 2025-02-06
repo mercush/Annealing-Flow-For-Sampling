@@ -12,6 +12,11 @@ plot_results/
 
 # Ignore trained samplers
 samplers_trained/
+samplers_trained_Langevin/
+plot_results_Langevin/
+
+Annealing_Flow_no_Langevin.py
+Annealing_Flow_sampler_no_Langevin.py
 
 plot_unequal.py
 run_flow.sbatch
@@ -21,4 +26,5 @@ gmm_density.png
 
 # Ignore GMM_cube.yaml
 GMM_cube.yaml
-GMM_unequal.yaml
+GMM_sphere_unequal.yaml
+Samplers.yaml

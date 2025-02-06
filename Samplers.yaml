@@ -1,8 +1,8 @@
 data:
-  # The type can be: 'GMM_cube', 'GMM_sphere', 'exponential', 'truncated', 'funnel'
-  type: 'exponential'
+  # The type can be: 'GMM_sphere', 'exponential', 'truncated', 'funnel'
+  type: 'GMM_sphere'
   unsymmetric: True
-  Xdim_flow: 50
+  Xdim_flow: 2
   c: 8 # This serves as: radius for GMM_spehre (10 if num_means==8; 8 if num_means==6); radius for indicator, GMM_cube, and exponential
   num_means: 6  # This is only used for GMM_spehre type; Ignore this for other types
   S: 3 # !! If users do not use the default S=list(3) when training their samplers, they must adjust this setting accordingly.
@@ -14,6 +14,10 @@ CNF:
 
 sampling:
   nsamples: 20000
+  Langevin: True 
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # If the user used Langevin: True in the training, then the user must use Langevin: True in the sampling.
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 eval:
   folder_suffix: '' 

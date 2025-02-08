@@ -484,7 +484,7 @@ def get_beta(block_id, number=8):
     return beta
 
 parser = argparse.ArgumentParser(description='Load hyperparameters from a YAML file.')
-parser.add_argument('--AnnealingFlow_config', default = 'truncated.yaml', type=str, help='Path to the YAML file')
+parser.add_argument('--AnnealingFlow_config', default = 'ExpGauss.yaml', type=str, help='Path to the YAML file')
 
 args_parsed = parser.parse_args()
 with open(args_parsed.AnnealingFlow_config, 'r') as file:

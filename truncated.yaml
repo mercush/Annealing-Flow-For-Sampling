@@ -1,7 +1,7 @@
 data:
   type: 'truncated'
-  Xdim_flow: 5
-  c: 8
+  Xdim_flow: 2
+  c: 6
   indicator: True
   
 CNF:

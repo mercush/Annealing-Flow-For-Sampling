@@ -388,7 +388,7 @@ def load_prev_CNFs(load_configs):
     for b in range(1, load_configs.block_id):
         self_prev = Namespace()
         filepath = os.path.join(load_configs.master_dir, f'{load_configs.prefix}{b}.pth')
-        checkpoint = torch.load(filepath, map_location=torch.device('cpu'))
+        checkpoint = torch.load(filepath, map_location=torch.device('cpu'), weights_only=False)
         self_prev.CNF = default_CNF_structure(config = load_configs.vfield_config)
         self_prev.CNF.load_state_dict(checkpoint['model'])  # In .pth file
         self_prev.ls_args_CNF = checkpoint['ls_args_CNF']
@@ -539,6 +539,7 @@ if __name__ == '__main__':
         prefix = 'block'
         common_name = f'{prefix}{block_id}'
         filepath = os.path.join(master_dir, common_name + '.pth')
+        print("filepath",filepath)
         directory = os.path.join(master_dir, common_name)
         os.makedirs(directory, exist_ok=True) 
         filename = os.path.join(directory, common_name)
@@ -628,7 +629,7 @@ if __name__ == '__main__':
                 print(f'############ Warm start from {block_id-1} parameter ############')
 
         if args_training.load_checkpoint and os.path.exists(filepath):
-            checkpt = torch.load(filepath)
+            checkpt = torch.load(filepath, weights_only=False)
             self.CNF.load_state_dict(checkpt['model'])
             args_training = checkpt['args']
             args_training.load_checkpoint = True

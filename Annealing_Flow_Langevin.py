@@ -483,14 +483,15 @@ def get_beta(block_id, number=8):
         beta = 1
     return beta
 
-parser = argparse.ArgumentParser(description='Load hyperparameters from a YAML file.')
-parser.add_argument('--AnnealingFlow_config', default = 'ExpGauss.yaml', type=str, help='Path to the YAML file')
-
-args_parsed = parser.parse_args()
-with open(args_parsed.AnnealingFlow_config, 'r') as file:
-    args_yaml = yaml.safe_load(file)
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Load hyperparameters from a YAML file.')
+    parser.add_argument('--AnnealingFlow_config', default = 'ExpGauss.yaml', type=str, help='Path to the YAML file')
+
+    args_parsed = parser.parse_args()
+    with open(args_parsed.AnnealingFlow_config, 'r') as file:
+        args_yaml = yaml.safe_load(file)
+
     Type = args_yaml['data']['type']
     Xdim_flow = args_yaml['data']['Xdim_flow']
     # User can choose whether to use Langevin adjustment or not
@@ -741,7 +742,8 @@ if __name__ == '__main__':
             assert len(self_ls_prev) == block_id - 1
             self.CNF.load_state_dict(self_ls_prev[-1].CNF.state_dict())
         if os.path.exists(filepath):
-            checkpt = torch.load(filepath, map_location=torch.device('cpu'))
+            checkpt = torch.load(filepath, map_location=torch.device('cpu'), weights_only=False)
+            print("mau filepath",filepath)
             self.CNF.load_state_dict(checkpt['model'])
             self.loss_at_block = checkpt['loss_at_block']
         else:
